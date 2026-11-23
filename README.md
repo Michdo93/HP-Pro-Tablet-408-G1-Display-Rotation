@@ -1,161 +1,153 @@
 # HP Pro Tablet 408 G1 – Display Rotation
 
-A small, configurable X11/LXQt helper to rotate the display on the HP Pro Tablet 408 G1 running Lubuntu.
+Configure display and touchscreen rotation on an HP Pro Tablet 408 G1 running Lubuntu/X11 in a standalone kiosk setup.
 
-This is an initial test version. It deliberately keeps the implementation simple:
+The expected startup chain is `systemd` → `kiosk.service` → `startx` → `~/scripts/kiosk.sh` → Matchbox and Chromium. The installer inserts the rotation command into the existing kiosk script. It does not create another systemd service and does not use LXQt autostart.
 
-- `xrandr` applies the display rotation.
-- A per-user LXQt autostart entry runs the script when the graphical session starts.
-- Touchscreen coordinate transformation is **not enabled automatically**. First verify whether the touchscreen follows the display rotation correctly on the actual tablet.
+## Features
+
+- Rotate the display using `xrandr`.
+- Rotate touchscreen coordinates using `xinput`.
+- Support `normal`, `left`, `right`, and `inverted`.
+- Integrate into an existing kiosk startup script.
+- Idempotent installation; no duplicate managed blocks.
+- Uninstall only the block managed by this project.
+
+## Tested HP Pro Tablet 408 G1 configuration
+
+| Component | Value |
+|---|---|
+| Display output | `DSI-1` |
+| Rotation | `right` |
+| Touchscreen | `SYNA7508:00 06CB:125D` |
+| X11 display | `:0` |
+
+The numeric XInput ID is not used because it can change after reboot. The stylus is a separate input device and is not configured by this initial version.
 
 ## Requirements
 
-- Lubuntu / LXQt running an X11 session
-- `xrandr`
-- Bash
+- Lubuntu with X11, `systemd`, `startx`
+- Existing kiosk script at `~/scripts/kiosk.sh`
+- `xrandr` (`x11-xserver-utils`), `xinput`, `python3`
+- `sudo` access to install missing packages
 
-Check the session type:
+## Installation
 
-```bash
-echo "$XDG_SESSION_TYPE"
-```
-
-This initial version targets `x11`. It is not intended for a Wayland session.
-
-Install `xrandr` if it is missing:
-
-```bash
-sudo apt update
-sudo apt install x11-xserver-utils
-```
-
-## Quick start
-
-Clone the repository:
+Run as the kiosk user (not with `sudo`):
 
 ```bash
 git clone https://github.com/Michdo93/HP-Pro-Tablet-408-G1-Display-Rotation.git
 cd HP-Pro-Tablet-408-G1-Display-Rotation
-```
-
-Inspect the available outputs:
-
-```bash
-xrandr --query
-```
-
-Edit `config/display.conf` if necessary. The default rotation is `right`:
-
-```bash
 nano config/display.conf
+chmod +x install.sh uninstall.sh scripts/configure-display.sh
+./install.sh
 ```
 
-Supported values:
-
-- `normal`
-- `left` – 90 degrees counter-clockwise
-- `right` – 90 degrees clockwise
-- `inverted` – 180 degrees
-
-Test manually before installing autostart:
-
-```bash
-./scripts/configure-display.sh
-```
-
-To restore the normal orientation:
-
-```bash
-DISPLAY_ROTATION=normal ./scripts/configure-display.sh
-```
-
-## Install LXQt autostart
-
-Run this as the desktop user, without `sudo`:
-
-```bash
-./scripts/install-autostart.sh
-```
-
-The installer creates a per-user `.desktop` entry in:
-
-```text
-~/.config/autostart/
-```
-
-Log out and back in, or reboot, to test automatic application.
-
-The autostart entry points to the cloned repository. Keep the repository in a stable location after installing it.
-
-## Uninstall autostart
-
-Run:
-
-```bash
-./scripts/uninstall-autostart.sh
-```
-
-This removes only the autostart entry. It does not delete the cloned repository.
-
-## Display detection
-
-The script selects the first connected output matching these rules:
-
-1. A connected output marked as `primary`.
-2. Otherwise, a connected internal panel whose name begins with `eDP`, `DSI`, or `LVDS`.
-3. Otherwise, if exactly one output is connected, that output.
-4. If the result is ambiguous, the script stops and asks for an explicit output name.
-
-You can set the output explicitly in `config/display.conf`, for example:
+Default configuration:
 
 ```bash
 DISPLAY_OUTPUT="DSI-1"
+DISPLAY_ROTATION="right"
+TOUCHSCREEN_NAME="SYNA7508:00 06CB:125D"
 ```
 
-Use the exact output name shown by `xrandr --query`.
+The installer checks the configuration and kiosk script, installs missing runtime packages using `sudo`, creates `~/scripts/kiosk.sh.before-display-rotation` on first modification, and inserts a marked call to `configure-display.sh` immediately after the kiosk script's shebang. Repeated installations update the managed block rather than duplicating it.
 
-## Touchscreen
-
-Touchscreen mapping is intentionally left unchanged in this first version. Depending on the driver and desktop stack, the touchscreen may rotate automatically with the display, or it may require a coordinate transformation.
-
-After rotating the display, test touch input at all four corners and near the centre. If touch coordinates are wrong, collect:
+The installer does not restart the kiosk automatically. Apply the change with:
 
 ```bash
-xinput list
-xinput list-props "EXACT TOUCHSCREEN DEVICE NAME"
+sudo systemctl restart kiosk.service
 ```
 
-Do not guess or apply a transformation matrix before identifying the correct input device and testing the actual behaviour. The touchscreen implementation can then be added to the configuration based on the tablet's output.
-
-## Troubleshooting
-
-### `Can't open display` / display cannot be opened
-
-Run the script from the logged-in graphical desktop session, not from a plain SSH session or a system-level service.
-
-### No output detected
-
-Run:
+Or reboot:
 
 ```bash
-xrandr --query
+sudo reboot
 ```
 
-Then set `DISPLAY_OUTPUT` explicitly in `config/display.conf`.
+## Manual test and verification
 
-### Wrong rotation direction
-
-Try the other value, `left` or `right`, in `config/display.conf`.
-
-### Restore the original orientation
+From the running X11 session:
 
 ```bash
-DISPLAY_ROTATION=normal ./scripts/configure-display.sh
+./scripts/configure-display.sh
+DISPLAY=:0 xrandr --query
+DISPLAY=:0 xinput list-props "SYNA7508:00 06CB:125D"
 ```
 
-## Notes
+For `right`, the expected touchscreen matrix is:
 
-- No systemd service is required for this use case.
-- The scripts do not use `sudo`.
-- The configuration is loaded from the repository's `config/display.conf`.
-- This is an initial version intended for testing on the physical tablet. Confirm the output name, rotation direction, and touchscreen behaviour before treating the configuration as final.
+```text
+0.000000, 1.000000, 0.000000,
+-1.000000, 0.000000, 1.000000,
+0.000000, 0.000000, 1.000000
+```
+
+## Rotation values
+
+| Value | Orientation |
+|---|---|
+| `normal` | Default orientation |
+| `left` | 90 degrees counter-clockwise |
+| `right` | 90 degrees clockwise |
+| `inverted` | 180 degrees |
+
+If device names differ, inspect them with:
+
+```bash
+DISPLAY=:0 xrandr --query
+DISPLAY=:0 xinput list
+```
+
+Use the exact touchscreen name, not its numeric XInput ID.
+
+## Kiosk integration details
+
+The installer inserts this managed block into `~/scripts/kiosk.sh`:
+
+```bash
+# BEGIN HP-PRO-TABLET-DISPLAY-ROTATION
+# Apply display and touchscreen orientation before starting the kiosk UI.
+/path/to/repository/scripts/configure-display.sh
+# END HP-PRO-TABLET-DISPLAY-ROTATION
+```
+
+The actual absolute path is generated automatically. The command runs after `startx` has brought up X11, which is required by `xrandr` and `xinput`.
+
+**Important:** If the kiosk setup script is run again and recreates `~/scripts/kiosk.sh`, it may overwrite the integration block. Run `./install.sh` again afterwards.
+
+## Logs and troubleshooting
+
+```bash
+sudo systemctl status kiosk.service
+journalctl -u kiosk.service -b --no-pager
+```
+
+The rotation helper logs messages prefixed with `[display-rotation]`. If it cannot connect to X11, ensure it is invoked from `kiosk.sh` after `startx` starts the X server. If the touchscreen is not found, check its exact name with `DISPLAY=:0 xinput list`.
+
+## Uninstallation
+
+Run as the kiosk user, without `sudo`:
+
+```bash
+./uninstall.sh
+```
+
+The uninstaller removes only the marked display-rotation block from `~/scripts/kiosk.sh`. It keeps the repository, configuration, original backup, and installed packages. It does not remove or modify `kiosk.service`.
+
+Restart the kiosk service or reboot to apply the removal:
+
+```bash
+sudo systemctl restart kiosk.service
+```
+
+For a custom kiosk script path, provide it to both scripts:
+
+```bash
+KIOSK_SCRIPT="/path/to/kiosk.sh" ./install.sh
+KIOSK_SCRIPT="/path/to/kiosk.sh" ./uninstall.sh
+```
+
+## License
+
+MIT. See [LICENSE](LICENSE).
